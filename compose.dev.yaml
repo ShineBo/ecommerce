@@ -1,0 +1,19 @@
+# docker compose -f compose.yaml -f compose.dev.yaml up --build
+services:
+  backend:
+    command: node --watch src/server.js
+    volumes:
+      - ./backend/src:/app/src
+      - ./backend/scripts:/app/scripts
+  frontend:
+    build:
+      context: ./frontend
+      target: build
+    command: npm run dev -- --port 80
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+      - ./frontend/index.html:/app/index.html
+      - ./frontend/vite.config.js:/app/vite.config.js
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]

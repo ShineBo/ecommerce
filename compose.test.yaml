@@ -1,0 +1,37 @@
+# Completely separate test project/database/volumes; never runs against the shop data.
+name: se-part2-shop-tests
+services:
+  mongodb:
+    image: mongo:7.0.43
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: test_root
+      MONGO_INITDB_ROOT_PASSWORD: isolated_test_root
+      MONGO_DB_NAME: simple_shop_test
+      MONGO_APP_USERNAME: test_app
+      MONGO_APP_PASSWORD: isolated_test_app
+    volumes:
+      - test_data:/data/db
+      - ./docker/mongo-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: [CMD-SHELL, "mongosh --quiet --username test_root --password isolated_test_root --authenticationDatabase admin --eval 'quit(db.adminCommand({ping:1}).ok === 1 ? 0 : 1)'"]
+      interval: 3s
+      timeout: 10s
+      retries: 30
+      start_period: 10s
+  tests:
+    build: ./backend
+    command: npm test
+    environment:
+      NODE_ENV: test
+      SESSION_SECRET: isolated-test-secret-at-least-32-characters-long
+      MONGO_HOST: mongodb
+      MONGO_DB_NAME: simple_shop_test
+      MONGO_APP_USERNAME: test_app
+      MONGO_APP_PASSWORD: isolated_test_app
+      UPLOAD_DIR: /tmp/simple-shop-test-slips
+      APP_ORIGIN: http://localhost:8080
+      API_RATE_LIMIT: 10000
+    depends_on:
+      mongodb: { condition: service_healthy }
+volumes:
+  test_data:

@@ -1,0 +1,72 @@
+name: se-part2-shop
+services:
+  mongodb:
+    image: ${MONGO_IMAGE:-mongo:7.0.43}
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME:?Run scripts/setup-env.sh}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:?Run scripts/setup-env.sh}
+      MONGO_INITDB_DATABASE: ${MONGO_DB_NAME:-simple_shop}
+      MONGO_DB_NAME: ${MONGO_DB_NAME:-simple_shop}
+      MONGO_APP_USERNAME: ${MONGO_APP_USERNAME:?Run scripts/setup-env.sh}
+      MONGO_APP_PASSWORD: ${MONGO_APP_PASSWORD:?Run scripts/setup-env.sh}
+    volumes:
+      - mongo_data:/data/db
+      - ./docker/mongo-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: [CMD-SHELL, "mongosh --quiet --host 127.0.0.1 --username \"$$MONGO_INITDB_ROOT_USERNAME\" --password \"$$MONGO_INITDB_ROOT_PASSWORD\" --authenticationDatabase admin --eval 'quit(db.adminCommand({ping:1}).ok === 1 ? 0 : 1)'"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 30s
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      APP_ORIGIN: ${APP_ORIGIN:-http://localhost:8080}
+      SESSION_SECRET: ${SESSION_SECRET:?Run scripts/setup-env.sh}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      MONGO_HOST: mongodb
+      MONGO_PORT: 27017
+      MONGO_DB_NAME: ${MONGO_DB_NAME:-simple_shop}
+      MONGO_APP_USERNAME: ${MONGO_APP_USERNAME:?Run scripts/setup-env.sh}
+      MONGO_APP_PASSWORD: ${MONGO_APP_PASSWORD:?Run scripts/setup-env.sh}
+      UPLOAD_DIR: /app/storage/slips
+      MAX_SLIP_BYTES: ${MAX_SLIP_BYTES:-5242880}
+      STORE_CURRENCY: ${STORE_CURRENCY:-THB}
+      PAYMENT_DEMO_MODE: ${PAYMENT_DEMO_MODE:-true}
+      BANK_NAME: ${BANK_NAME:-}
+      BANK_ACCOUNT_NAME: ${BANK_ACCOUNT_NAME:-}
+      BANK_ACCOUNT_NUMBER: ${BANK_ACCOUNT_NUMBER:-}
+      SEED_DEMO_DATA: ${SEED_DEMO_DATA:-true}
+      DEMO_CUSTOMER_PASSWORD: ${DEMO_CUSTOMER_PASSWORD:?Run scripts/setup-env.sh}
+      AUTH_RATE_LIMIT: ${AUTH_RATE_LIMIT:-20}
+      ORDER_RATE_LIMIT: ${ORDER_RATE_LIMIT:-10}
+      API_RATE_LIMIT: ${API_RATE_LIMIT:-120}
+    volumes:
+      - slip_uploads:/app/storage/slips
+    depends_on:
+      mongodb: { condition: service_healthy }
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/api/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${APP_PORT:-8080}:80"
+    depends_on:
+      backend: { condition: service_healthy }
+    healthcheck:
+      test: [CMD-SHELL, "wget -q --spider http://127.0.0.1/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+volumes:
+  mongo_data:
+  slip_uploads:

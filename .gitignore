@@ -1,0 +1,43 @@
+# Local secrets; keep the shareable configuration template
+.env
+.env.*
+!.env.example
+
+# Installed dependencies and generated builds
+node_modules/
+dist/
+.vite/
+.cache/
+*.tsbuildinfo
+
+# Test reports and tool caches
+coverage/
+playwright-report/
+test-results/
+blob-report/
+.eslintcache
+.prettiercache
+
+# Local uploads and private sample slips
+storage/
+preparation/sample-slips/
+
+# Logs, macOS metadata, and editor swap files
+*.log
+.DS_Store
+._*
+*.swp
+*.swo
+
+# Local guides, planning documents, and verification notes (keep for later)
+/TEST_RESULTS.md
+/CODE_GUIDE.md
+/GITHUB_GUIDE.md
+/DOCKER_GUIDE.md
+/PRE_IMPLEMENTATION.md
+/PROJECT_SPEC.md
+/PUBLISHING_GUIDE.md
+/submission-guide/
+
+# README.md, source, Dockerfiles, Compose files, tests, public assets,
+# package.json, and package-lock.json intentionally remain included.

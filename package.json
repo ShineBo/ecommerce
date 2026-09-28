@@ -1,0 +1,16 @@
+{
+  "name": "simple-shop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A student-friendly three-tier shop with payment-slip checkout.",
+  "scripts": {
+    "format": "prettier --write \"backend/{src,scripts,tests}/**/*.js\" \"frontend/src/**/*.{js,jsx,css}\" \"frontend/*.js\" \"tests/e2e/*.js\"",
+    "lint": "npm --prefix backend run lint && npm --prefix frontend run lint",
+    "test": "docker compose -f compose.test.yaml up --build --abort-on-container-exit --exit-code-from tests",
+    "test:e2e": "npm --prefix frontend run test:e2e"
+  },
+  "devDependencies": {
+    "prettier": "^3.9.8"
+  },
+  "type": "module"
+}
