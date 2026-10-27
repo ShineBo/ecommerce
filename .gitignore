@@ -1,43 +1,48 @@
-# Local secrets; keep the shareable configuration template
+# Secrets: publish examples, never generated configuration or private keys.
 .env
 .env.*
 !.env.example
+!.env.vm.example
+*.pem
+*.key
 
-# Installed dependencies and generated builds
+# Local learning material and historical planning documents.
+/local-guides/
+/*_GUIDE.md
+/VM_DEPLOYMENT.md
+/TEST_RESULTS.md
+/PRE_IMPLEMENTATION.md
+/PROJECT_SPEC.md
+/submission-guide/
+
+# Installed dependencies, builds, caches, and test artifacts.
 node_modules/
 dist/
 .vite/
 .cache/
-*.tsbuildinfo
-
-# Test reports and tool caches
 coverage/
 playwright-report/
 test-results/
 blob-report/
 .eslintcache
 .prettiercache
+*.tsbuildinfo
 
-# Local uploads and private sample slips
+# Private uploads, exports, database backups, and preparation files.
 storage/
-preparation/sample-slips/
+/backups/
+/exports/
+/preparation/
+*.bson
+*.dump
+*.archive
 
-# Logs, macOS metadata, and editor swap files
+# Logs and operating-system/editor metadata.
 *.log
 .DS_Store
 ._*
 *.swp
 *.swo
+.idea/
 
-# Local guides, planning documents, and verification notes (keep for later)
-/TEST_RESULTS.md
-/CODE_GUIDE.md
-/GITHUB_GUIDE.md
-/DOCKER_GUIDE.md
-/PRE_IMPLEMENTATION.md
-/PROJECT_SPEC.md
-/PUBLISHING_GUIDE.md
-/submission-guide/
-
-# README.md, source, Dockerfiles, Compose files, tests, public assets,
-# package.json, and package-lock.json intentionally remain included.
+# README, source, tests, Docker/Compose files, public assets, and lockfiles are shared.

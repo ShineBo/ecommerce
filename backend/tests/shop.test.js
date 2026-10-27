@@ -39,6 +39,7 @@ afterEach(() => {
   for (const key of Object.keys(hooks)) delete hooks[key];
 });
 after(async () => {
+  app.locals.studyKitPlugin.close();
   await app.locals.sessionStore.close();
   await mongoose.disconnect();
 });
@@ -75,6 +76,22 @@ async function product(priceMinor = 18900) {
     isActive: true,
   });
 }
+test('a configured session cookie is used consistently for login and logout', async () => {
+  const cookieName = 'simple_shop_vm.sid';
+  const target = createApp({ ...config, sessionCookieName: cookieName });
+  try {
+    const client = await customer(target);
+    const me = await client.agent.get('/api/auth/me');
+    assert.equal(me.status, 200);
+    const logout = await client.mutate('post', '/api/auth/logout');
+    assert.equal(logout.status, 204);
+    assert.ok(logout.headers['set-cookie'].some((cookie) => cookie.startsWith(`${cookieName}=`)));
+    assert.equal((await client.agent.get('/api/auth/me')).status, 401);
+  } finally {
+    target.locals.studyKitPlugin.close();
+    await target.locals.sessionStore.close();
+  }
+});
 async function filledCart(client, quantity = 2) {
   const p = await product();
   const current = (await client.agent.get('/api/cart')).body.data;
@@ -104,6 +121,7 @@ test('guests cannot browse products or access carts, orders, and slips', async (
   for (const endpoint of [
     '/api/products',
     '/api/cart',
+    '/api/plugins/study-kit',
     '/api/orders',
     `/api/orders/${new mongoose.Types.ObjectId()}/slip`,
   ])
@@ -444,6 +462,7 @@ test('authentication limits return 429 with Retry-After', async () => {
     assert.equal(blocked.status, 429);
     assert.ok(blocked.headers['retry-after']);
   } finally {
+    limitedApp.locals.studyKitPlugin.close();
     await limitedApp.locals.sessionStore.close();
   }
 });
@@ -465,4 +484,165 @@ test('checkout revalidates old cart quantities against the current limits', asyn
   const current = (await client.agent.get('/api/cart')).body.data;
   assert.equal(current.canCheckout, false);
   assert.equal((await checkout(client, { ...cart, totalMinor: current.totalMinor })).status, 422);
+});
+
+test('kit status discovers real gRPC purposes and empty-cart suggestions use current database prices', async () => {
+  await seedCatalog();
+  const client = await customer();
+  const status = await client.agent.get('/api/plugins/study-kit');
+  assert.equal(status.status, 200);
+  assert.equal(status.body.data.available, true);
+  assert.equal(status.body.data.algorithm_id, 'P1');
+  assert.equal(status.body.data.purposes.length, 3);
+  const cart = (await client.agent.get('/api/cart')).body.data;
+  const notebook = await Product.findOne({ sku: 'NOTE-01' });
+  const response = await client
+    .mutate('post', '/api/plugins/study-kit/check')
+    .send({ purposeId: 'exam-preparation', expectedVersion: cart.version });
+  assert.equal(response.status, 200, JSON.stringify(response.body));
+  assert.equal(response.body.data.completedCount, 0);
+  assert.equal(response.body.data.algorithmId, 'P1');
+  assert.equal(response.body.data.requirements[1].minimumQuantity, 1);
+  const suggestion = response.body.data.requirements[0].suggestions.find(
+    (item) => item.id === String(notebook._id),
+  );
+  assert.equal(suggestion.priceMinor, notebook.priceMinor);
+  assert.equal(suggestion.currency, 'THB');
+  assert.equal((await client.agent.get('/api/cart')).body.data.quantity, 0);
+});
+test('kit checking uses only the signed-in customer cart, and adding a suggestion completes the kit', async () => {
+  const client = await customer();
+  const other = await customer();
+  const notebook = await Product.findOne({ sku: 'NOTE-01' });
+  const pen = await Product.findOne({ sku: 'PEN-01' });
+  const add = async (user, productId) => {
+    const cart = (await user.agent.get('/api/cart')).body.data;
+    return user
+      .mutate('post', '/api/cart/items')
+      .send({ productId: String(productId), quantity: 1, expectedVersion: cart.version });
+  };
+  await add(client, notebook._id);
+  await add(other, pen._id);
+  const check = async () => {
+    const cart = (await client.agent.get('/api/cart')).body.data;
+    return client
+      .mutate('post', '/api/plugins/study-kit/check')
+      .send({ purposeId: 'exam-preparation', expectedVersion: cart.version });
+  };
+  const incomplete = await check();
+  assert.equal(incomplete.body.data.completedCount, 1);
+  const writing = incomplete.body.data.requirements.find((item) => item.id === 'writing');
+  assert.equal(writing.satisfied, false);
+  assert.ok(writing.suggestions.some((item) => item.id === String(pen._id)));
+  await add(client, pen._id);
+  const complete = await check();
+  assert.equal(complete.body.data.complete, true);
+  assert.equal(complete.body.data.completedCount, 2);
+  assert.equal((await other.agent.get('/api/cart')).body.data.quantity, 1);
+});
+test('kit endpoints reject forged items/identity, stale cart versions, missing CSRF, and unknown purposes', async () => {
+  const client = await customer();
+  const cart = (await client.agent.get('/api/cart')).body.data;
+  const body = { purposeId: 'exam-preparation', expectedVersion: cart.version };
+  for (const extra of [
+    { userId: String(new mongoose.Types.ObjectId()) },
+    { items: [] },
+    { totalMinor: 1 },
+  ]) {
+    assert.equal(
+      (await client.mutate('post', '/api/plugins/study-kit/check').send({ ...body, ...extra }))
+        .status,
+      422,
+    );
+  }
+  assert.equal(
+    (
+      await client
+        .mutate('post', '/api/plugins/study-kit/check')
+        .send({ ...body, expectedVersion: cart.version + 1 })
+    ).status,
+    409,
+  );
+  assert.equal(
+    (
+      await client.agent
+        .post('/api/plugins/study-kit/check')
+        .set('Origin', config.origin)
+        .send(body)
+    ).status,
+    403,
+  );
+  assert.equal(
+    (
+      await client
+        .mutate('post', '/api/plugins/study-kit/check')
+        .send({ ...body, purposeId: 'made-up-purpose' })
+    ).status,
+    422,
+  );
+  assert.equal((await client.agent.get('/api/cart')).body.data.version, cart.version);
+});
+test('inactive products cannot fulfil a kit or appear as recommendations', async () => {
+  const client = await customer();
+  const pen = await Product.findOne({ sku: 'PEN-01' });
+  let cart = (await client.agent.get('/api/cart')).body.data;
+  await client
+    .mutate('post', '/api/cart/items')
+    .send({ productId: String(pen._id), quantity: 1, expectedVersion: cart.version });
+  await Product.updateOne({ _id: pen._id }, { isActive: false });
+  try {
+    cart = (await client.agent.get('/api/cart')).body.data;
+    const response = await client
+      .mutate('post', '/api/plugins/study-kit/check')
+      .send({ purposeId: 'exam-preparation', expectedVersion: cart.version });
+    assert.equal(response.status, 200);
+    const writing = response.body.data.requirements.find((item) => item.id === 'writing');
+    assert.equal(writing.satisfied, false);
+    assert.ok(writing.suggestions.every((item) => item.id !== String(pen._id)));
+  } finally {
+    await Product.updateOne({ _id: pen._id }, { isActive: true });
+  }
+});
+test('a cart edited while gRPC is in flight returns a conflict rather than stale recommendations', async () => {
+  const client = await customer();
+  const cart = (await client.agent.get('/api/cart')).body.data;
+  const plugin = app.locals.studyKitPlugin;
+  const original = plugin.checkKit;
+  plugin.checkKit = async (request) => {
+    const response = await original(request);
+    await Cart.updateOne({ userId: client.userId }, { $inc: { version: 1 } });
+    return response;
+  };
+  try {
+    const response = await client
+      .mutate('post', '/api/plugins/study-kit/check')
+      .send({ purposeId: 'exam-preparation', expectedVersion: cart.version });
+    assert.equal(response.status, 409);
+    assert.equal(response.body.error.code, 'CART_CHANGED');
+  } finally {
+    plugin.checkKit = original;
+  }
+});
+test('an absent plug-in returns a safe 503 while normal cart and checkout still work', async () => {
+  const offlineApp = createApp({
+    ...config,
+    studyKit: { enabled: true, host: '127.0.0.1', port: 1, timeoutMs: 100 },
+  });
+  try {
+    const client = await customer(offlineApp);
+    const { cart } = await filledCart(client);
+    const status = await client.agent.get('/api/plugins/study-kit');
+    assert.equal(status.body.data.available, false);
+    const response = await client
+      .mutate('post', '/api/plugins/study-kit/check')
+      .send({ purposeId: 'exam-preparation', expectedVersion: cart.version });
+    assert.equal(response.status, 503);
+    assert.equal(response.body.error.code, 'PLUGIN_UNAVAILABLE');
+    assert.match(response.body.error.message, /keep shopping/);
+    assert.equal((await client.agent.get('/api/cart')).body.data.quantity, 2);
+    assert.equal((await checkout(client, cart)).status, 201);
+  } finally {
+    offlineApp.locals.studyKitPlugin.close();
+    await offlineApp.locals.sessionStore.close();
+  }
 });

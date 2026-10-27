@@ -1,0 +1,94 @@
+# Standalone VM file: pulls published images; no source code or build tools required.
+# docker compose --env-file .env.vm -f compose.deploy.yaml up -d --wait
+name: se-part2-shop-vm
+services:
+  mongodb:
+    image: ${MONGO_IMAGE:-mongo:7.0.43}
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME:?Run scripts/setup-vm-env.sh}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:?Run scripts/setup-vm-env.sh}
+      MONGO_INITDB_DATABASE: ${MONGO_DB_NAME:-simple_shop}
+      MONGO_DB_NAME: ${MONGO_DB_NAME:-simple_shop}
+      MONGO_APP_USERNAME: ${MONGO_APP_USERNAME:?Run scripts/setup-vm-env.sh}
+      MONGO_APP_PASSWORD: ${MONGO_APP_PASSWORD:?Run scripts/setup-vm-env.sh}
+    volumes:
+      - mongo_data:/data/db
+      - ./docker/mongo-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: [CMD-SHELL, "mongosh --quiet --host 127.0.0.1 --username \"$$MONGO_INITDB_ROOT_USERNAME\" --password \"$$MONGO_INITDB_ROOT_PASSWORD\" --authenticationDatabase admin --eval 'quit(db.adminCommand({ping:1}).ok === 1 ? 0 : 1)'"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 30s
+  backend:
+    image: ${DOCKERHUB_USERNAME:-shinebo}/ecommerce-backend:${APP_IMAGE_TAG:-v1}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      STUDY_KIT_ENABLED: ${STUDY_KIT_ENABLED:-true}
+      PLUGIN_HOST: ${PLUGIN_HOST:-study-kit-plugin}
+      PLUGIN_PORT: ${PLUGIN_PORT:-50001}
+      PLUGIN_TIMEOUT_MS: ${PLUGIN_TIMEOUT_MS:-1500}
+      PORT: 3000
+      APP_ORIGIN: ${APP_ORIGIN:?Run scripts/setup-vm-env.sh with the browser URL}
+      SESSION_SECRET: ${SESSION_SECRET:?Run scripts/setup-vm-env.sh}
+      SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:-simple_shop_vm.sid}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      MONGO_HOST: mongodb
+      MONGO_PORT: 27017
+      MONGO_DB_NAME: ${MONGO_DB_NAME:-simple_shop}
+      MONGO_APP_USERNAME: ${MONGO_APP_USERNAME:?Run scripts/setup-vm-env.sh}
+      MONGO_APP_PASSWORD: ${MONGO_APP_PASSWORD:?Run scripts/setup-vm-env.sh}
+      UPLOAD_DIR: /app/storage/slips
+      MAX_SLIP_BYTES: ${MAX_SLIP_BYTES:-5242880}
+      STORE_CURRENCY: ${STORE_CURRENCY:-THB}
+      PAYMENT_DEMO_MODE: ${PAYMENT_DEMO_MODE:-true}
+      BANK_NAME: ${BANK_NAME:-}
+      BANK_ACCOUNT_NAME: ${BANK_ACCOUNT_NAME:-}
+      BANK_ACCOUNT_NUMBER: ${BANK_ACCOUNT_NUMBER:-}
+      SEED_DEMO_DATA: ${SEED_DEMO_DATA:-true}
+      DEMO_CUSTOMER_PASSWORD: ${DEMO_CUSTOMER_PASSWORD:?Run scripts/setup-vm-env.sh}
+      AUTH_RATE_LIMIT: ${AUTH_RATE_LIMIT:-20}
+      ORDER_RATE_LIMIT: ${ORDER_RATE_LIMIT:-10}
+      API_RATE_LIMIT: ${API_RATE_LIMIT:-120}
+    volumes:
+      - slip_uploads:/app/storage/slips
+    depends_on:
+      mongodb: { condition: service_healthy }
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/api/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+  # Optional extension: the core never waits for it to start or become healthy.
+  study-kit-plugin:
+    # Change P1 to P2 here (or set PLUGIN_TAG in .env.vm), then pull and recreate only this service.
+    image: ${DOCKERHUB_USERNAME:-shinebo}/ecommerce-study-kit:${PLUGIN_TAG:-P1}
+    restart: unless-stopped
+    environment:
+      PLUGIN_PORT: ${PLUGIN_PORT:-50001}
+    expose:
+      - "${PLUGIN_PORT:-50001}"
+    healthcheck:
+      test: [CMD, node, src/healthcheck.js]
+      interval: 10s
+      timeout: 4s
+      retries: 5
+      start_period: 10s
+  frontend:
+    image: ${DOCKERHUB_USERNAME:-shinebo}/ecommerce-frontend:${APP_IMAGE_TAG:-v1}
+    restart: unless-stopped
+    ports:
+      - "0.0.0.0:${APP_PORT:-80}:80"
+    depends_on:
+      backend: { condition: service_healthy }
+    healthcheck:
+      test: [CMD-SHELL, "wget -q --spider http://127.0.0.1/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+volumes:
+  mongo_data:
+  slip_uploads:

@@ -76,3 +76,43 @@ test('375px layout has no horizontal overflow and category filters work', async 
   await page.getByRole('button', { name: 'Sign out' }).click();
   await expect(page).toHaveURL('/login');
 });
+
+test('study kit suggestions can complete a kit and update after cart changes', async ({ page }) => {
+  await register(page);
+  await page.getByRole('link', { name: 'Shopping bag, 0 items' }).click();
+  const checker = page.getByRole('region', { name: 'Study Kit Checker' });
+  await expect(checker.getByRole('status', { name: 'Kit checker availability' })).toHaveText(
+    'Available',
+  );
+  await checker.getByRole('button', { name: 'Check my kit', exact: true }).click();
+  await expect(checker.getByText('0 of 2 essentials ready')).toBeVisible();
+  await checker.getByLabel('What are you getting ready for?').selectOption('journaling');
+  await checker.getByRole('button', { name: 'Check my kit', exact: true }).click();
+  await expect(checker.getByText('0 of 3 essentials ready')).toBeVisible();
+  await checker.getByRole('button', { name: 'Add Everyday notebook to bag' }).click();
+  await expect(checker.getByLabel('What are you getting ready for?')).toHaveValue('journaling');
+  await checker.getByLabel('What are you getting ready for?').selectOption('exam-preparation');
+  await expect(page.getByRole('link', { name: 'Shopping bag, 1 items' })).toBeVisible();
+  await expect(checker.getByRole('button', { name: 'Check my kit', exact: true })).toBeEnabled();
+  await checker.getByRole('button', { name: 'Check my kit', exact: true }).click();
+  await expect(checker.getByText('1 of 2 essentials ready')).toBeVisible();
+  await checker.getByRole('button', { name: 'Add The good pen to bag' }).click();
+  await expect(page.getByRole('link', { name: 'Shopping bag, 2 items' })).toBeVisible();
+  await checker.getByRole('button', { name: 'Check my kit', exact: true }).click();
+  await expect(checker.getByText('Your kit is ready!', { exact: true })).toBeVisible();
+  await checker.getByLabel('What are you getting ready for?').selectOption('journaling');
+  await checker.getByRole('button', { name: 'Check my kit', exact: true }).click();
+  await expect(checker.getByText('2 of 3 essentials ready')).toBeVisible();
+  await expect(
+    checker.getByRole('button', { name: 'Add Soft color washi set to bag' }),
+  ).toBeVisible();
+  await checker.getByLabel('What are you getting ready for?').selectOption('desk-organization');
+  await checker.getByRole('button', { name: 'Check my kit', exact: true }).click();
+  await expect(checker.getByText('1 of 2 essentials ready')).toBeVisible();
+  await page.getByRole('button', { name: 'Increase Everyday notebook' }).click();
+  await expect(checker.getByText('1 of 2 essentials ready')).toHaveCount(0);
+  await page.setViewportSize({ width: 375, height: 812 });
+  await checker.getByRole('button', { name: 'Check my kit', exact: true }).click();
+  await expect(checker.getByText('1 of 2 essentials ready')).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});

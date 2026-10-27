@@ -1,14 +1,23 @@
 # docker compose -f compose.yaml -f compose.dev.yaml up --build
 services:
   backend:
+    build:
+      target: development
     command: node --watch src/server.js
     volumes:
       - ./backend/src:/app/src
       - ./backend/scripts:/app/scripts
+  study-kit-plugin:
+    build:
+      target: development
+    command: node --watch src/server.js
+    volumes:
+      - ./plugins/study-kit/src:/plugin/src
+      - ./backend/src/plugins/studyKit.proto:/plugin/contracts/studyKit.proto:ro
   frontend:
     build:
       context: ./frontend
-      target: build
+      target: development
     command: npm run dev -- --port 80
     volumes:
       - ./frontend/src:/app/src

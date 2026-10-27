@@ -1,8 +1,9 @@
-FROM node:24-bookworm-slim AS build
+FROM node:24-bookworm-slim AS development
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 COPY . .
+FROM development AS build
 RUN npm run build
 FROM nginx:1.30-alpine
 COPY nginx.conf /etc/nginx/conf.d/default.conf

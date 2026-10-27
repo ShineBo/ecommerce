@@ -1,0 +1,14 @@
+**
+!plugins/
+!plugins/study-kit/
+!plugins/study-kit/package.json
+!plugins/study-kit/package-lock.json
+!plugins/study-kit/eslint.config.js
+!plugins/study-kit/src/
+!plugins/study-kit/src/**
+!plugins/study-kit/tests/
+!plugins/study-kit/tests/**
+!backend/
+!backend/src/
+!backend/src/plugins/
+!backend/src/plugins/studyKit.proto

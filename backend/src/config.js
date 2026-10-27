@@ -14,6 +14,9 @@ export function readConfig(env = process.env) {
     throw new Error('SESSION_SECRET must be at least 32 characters');
   const database = env.MONGO_DB_NAME;
   if (!/^[a-zA-Z0-9_-]+$/.test(database)) throw new Error('Invalid MONGO_DB_NAME');
+  const sessionCookieName = env.SESSION_COOKIE_NAME || 'simple_shop.sid';
+  if (!/^[A-Za-z0-9_.-]{1,80}$/.test(sessionCookieName))
+    throw new Error('Invalid SESSION_COOKIE_NAME');
   const demoMode = env.PAYMENT_DEMO_MODE !== 'false';
   if (
     !demoMode &&
@@ -27,12 +30,23 @@ export function readConfig(env = process.env) {
       throw new Error(`Invalid configuration: ${name}`);
     return value;
   };
+  const pluginPort = positive('PLUGIN_PORT', 50001);
+  const pluginTimeout = positive('PLUGIN_TIMEOUT_MS', 1500);
+  if (pluginPort > 65535 || pluginTimeout > 5000)
+    throw new Error('Invalid plug-in port or timeout');
   return {
+    studyKit: {
+      enabled: env.STUDY_KIT_ENABLED !== 'false',
+      host: env.PLUGIN_HOST || 'study-kit-plugin',
+      port: pluginPort,
+      timeoutMs: pluginTimeout,
+    },
     port: positive('PORT', 3000),
     origin: env.APP_ORIGIN || 'http://localhost:8080',
     mongoUri: `mongodb://${encodeURIComponent(env.MONGO_APP_USERNAME)}:${encodeURIComponent(env.MONGO_APP_PASSWORD)}@${env.MONGO_HOST || 'mongodb'}:${env.MONGO_PORT || '27017'}/${database}?authSource=${database}`,
     database,
     sessionSecret: env.SESSION_SECRET,
+    sessionCookieName,
     cookieSecure: env.COOKIE_SECURE === 'true',
     uploadDir: path.resolve(env.UPLOAD_DIR || 'storage/slips'),
     maxSlipBytes: positive('MAX_SLIP_BYTES', 5242880),

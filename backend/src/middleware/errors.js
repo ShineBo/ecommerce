@@ -29,7 +29,8 @@ export function errorHandler(error, req, res, _next) {
     code = 'CONFLICT';
     message = 'This record already exists.';
   }
-  if (status >= 500) {
+  // This expected optional-service failure has a deliberately safe customer-facing message.
+  if (status >= 500 && !(error instanceof AppError && code === 'PLUGIN_UNAVAILABLE')) {
     console.error(
       JSON.stringify({
         requestId: req.id,

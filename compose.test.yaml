@@ -18,11 +18,26 @@ services:
       timeout: 10s
       retries: 30
       start_period: 10s
+  study-kit-plugin:
+    build:
+      context: .
+      dockerfile: plugins/study-kit/Dockerfile
+      target: development
+    healthcheck:
+      test: [CMD, node, src/healthcheck.js]
+      interval: 3s
+      timeout: 4s
+      retries: 15
   tests:
-    build: ./backend
+    build:
+      context: ./backend
+      target: development
     command: npm test
     environment:
       NODE_ENV: test
+      PLUGIN_HOST: study-kit-plugin
+      PLUGIN_PORT: 50001
+      PLUGIN_TIMEOUT_MS: 1000
       SESSION_SECRET: isolated-test-secret-at-least-32-characters-long
       MONGO_HOST: mongodb
       MONGO_DB_NAME: simple_shop_test
@@ -33,5 +48,6 @@ services:
       API_RATE_LIMIT: 10000
     depends_on:
       mongodb: { condition: service_healthy }
+      study-kit-plugin: { condition: service_healthy }
 volumes:
   test_data:

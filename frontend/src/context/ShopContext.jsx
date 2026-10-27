@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 const ShopContext = createContext(null);
 export function ShopProvider({ children }) {
@@ -7,11 +7,23 @@ export function ShopProvider({ children }) {
   const [authError, setAuthError] = useState('');
   const [cart, setCart] = useState(null);
   const [notice, setNotice] = useState('');
-  const refreshCart = useCallback(async () => {
-    const result = await api('/cart');
-    setCart(result.data);
-    return result.data;
+  const cartEpoch = useRef(0);
+  const invalidateCart = useCallback(() => {
+    cartEpoch.current++;
   }, []);
+  const acceptCart = useCallback((next, epoch) => {
+    setCart((current) => {
+      // An old read must not overwrite a newer mutation or a different login session.
+      if (epoch !== cartEpoch.current) return current;
+      return !current || next.version >= current.version ? next : current;
+    });
+  }, []);
+  const refreshCart = useCallback(async () => {
+    const epoch = cartEpoch.current;
+    const result = await api('/cart');
+    acceptCart(result.data, epoch);
+    return result.data;
+  }, [acceptCart]);
   const loadSession = useCallback(async () => {
     setLoading(true);
     setAuthError('');
@@ -28,11 +40,18 @@ export function ShopProvider({ children }) {
     loadSession();
   }, [loadSession]);
   useEffect(() => {
-    if (user) refreshCart().catch((error) => setNotice(error.message));
-    else setCart(null);
-  }, [user, refreshCart]);
+    invalidateCart();
+    const epoch = cartEpoch.current;
+    setCart(null);
+    if (user)
+      refreshCart().catch((error) => {
+        if (epoch === cartEpoch.current) setNotice(error.message);
+      });
+    return invalidateCart;
+  }, [user, refreshCart, invalidateCart]);
   useEffect(() => {
     const expire = () => {
+      cartEpoch.current++;
       setUser(null);
       setCart(null);
       setNotice('Your session expired. Please sign in again.');
@@ -47,6 +66,7 @@ export function ShopProvider({ children }) {
   }, [notice]);
   const authenticate = async (mode, values) => {
     const response = await api(`/auth/${mode}`, { method: 'POST', body: values });
+    cartEpoch.current++;
     setUser(response.data.user);
   };
   const logout = async () => {
@@ -55,16 +75,18 @@ export function ShopProvider({ children }) {
     } catch (error) {
       if (error.status !== 401) throw error;
     }
+    cartEpoch.current++;
     setUser(null);
     setCart(null);
   };
   const updateCart = async (url, method, body) => {
+    const epoch = cartEpoch.current;
     try {
       const response = await api(url, { method, body });
-      setCart(response.data);
+      acceptCart(response.data, epoch);
       return response.data;
     } catch (error) {
-      if (error.status === 409) await refreshCart();
+      if (error.status === 409 && epoch === cartEpoch.current) await refreshCart();
       throw error;
     }
   };

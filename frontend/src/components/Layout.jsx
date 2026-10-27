@@ -62,7 +62,7 @@ export default function Layout() {
           <span>
             Made for your everyday <Heart size={12} />
           </span>
-          <small>© {new Date().getFullYear()} Simple Shop · A student project</small>
+          <small>© {new Date().getFullYear()} Simple Shop</small>
         </div>
       </footer>
       <div className={`toast ${notice ? 'visible' : ''}`} role="status" aria-live="polite">

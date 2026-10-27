@@ -1,208 +1,245 @@
 # Simple Shop
 
-A small, complete e-commerce assignment built with **React + Express/Node.js + MongoDB**, running in three Docker Compose services. Customers sign in, collect products in a persistent bag, and submit an order with a private payment-slip image. An operator reviews payments through a local command.
+A stationery storefront with account-based shopping, persistent carts, bank-transfer slip submission, and an optional Study Kit Checker. Built with React, Express, and MongoDB, with a separate gRPC plug-in service and Docker Compose workflows for development and deployment.
 
-The application runs at **http://localhost:8080**. This is a local classroom demonstration: no real transfer is needed. Uploading a slip creates an order awaiting review, not a verified payment.
+## Features
 
-## Read these guides
+- Register, sign in, and browse a responsive stationery catalog.
+- Filter products by category and manage a cart saved to your account.
+- Submit a PNG/JPEG payment slip and track an order's review status.
+- Review orders through an operator CLI with recorded decisions and timestamps.
+- Check a cart against exam preparation, journaling, or desk organization requirements.
+- Switch between two plug-in algorithms without changing the core application.
+- Keep shopping and checking out when the optional plug-in is stopped or disabled.
+- Run from source locally or deploy published images to a Linux host.
 
-- [DOCKER_GUIDE.md](DOCKER_GUIDE.md): how the three tiers, containers, networking, and persistent data fit together.
-- [CODE_GUIDE.md](CODE_GUIDE.md): where to edit the application, with worked examples.
-- [GITHUB_GUIDE.md](GITHUB_GUIDE.md): upload the project yourself, step by step.
-- [TEST_RESULTS.md](TEST_RESULTS.md): checks completed and their limits.
+Payment slips are reviewed manually. Uploading a slip does not verify a bank transfer. Sample-payment mode is enabled by default and requires no real transfer.
 
-## Start the shop
+## Architecture
 
-Docker Desktop must be running. In Terminal:
-
-```bash
-cd "/Users/shine/Desktop/Coding/E-commerce"
-./scripts/setup-env.sh
-docker compose -f compose.yaml -f compose.compass.yaml up --build -d
-docker compose ps
+```mermaid
+flowchart LR
+  Browser["React in the browser"] <-->|HTTP| Frontend["Frontend: Vite / Nginx"]
+  Frontend <-->|"/api"| Backend["Express core"]
+  Backend <-->|Mongoose| Mongo[(MongoDB)]
+  Backend <-->|"gRPC :50001"| Plugin["Study Kit Checker: P1 or P2"]
+  Mongo --> Data[(Database volume)]
+  Backend --> Slips[(Private slip volume)]
 ```
 
-Wait for all three services to be healthy, then open **http://localhost:8080**. The optional Compass file also exposes MongoDB to your Mac at `127.0.0.1:27018`. To keep the database private to Docker, start with only `docker compose up --build -d` instead.
+The core owns accounts, sessions, products, carts, orders, and upload storage. The plug-in owns kit rules and communicates through one shared Protocol Buffers contract. It receives catalog/cart data without customer identity, prices, or database credentials. The core resolves suggested IDs against its current catalog before returning products to the browser.
 
-`setup-env.sh` generates secrets only if `.env` is absent or empty. It preserves an existing nonempty `.env`. The script can use host Node.js or a temporary Node Docker container. You do not need to install MongoDB, React, or Express globally.
+In a deployed image, Nginx serves the built React app and proxies `/api` to Express. The database, backend, and plug-in remain on the internal Compose network; the frontend is the web entry point.
 
-### Create an account or use a demo customer
+## Stack
 
-The easiest option is **Create an account** on the sign-in page. Names need 2–80 characters; passwords need 12–128 characters.
-
-Two customers are seeded on first startup:
-
-- `jamie@example.com`
-- `alex@example.com`
-
-Their password is the value of `DEMO_CUSTOMER_PASSWORD` in your local `.env`. Open that file privately to copy it. The app does not display or hardcode its password. Changing this value after a customer is seeded does **not** reset that customer's password.
-
-### Try the full flow
-
-1. Sign in or create your own account.
-2. Add a product to your bag, change its quantity, and continue to checkout.
-3. In demo mode, click **Download a sample slip** on checkout.
-4. Select the downloaded PNG and click **Submit my order**.
-5. Open **My orders** to see the saved reference and payment-review status.
-6. Use the operator commands below to approve or reject the payment.
-7. Refresh the order page to see the decision.
-
-The sample is at `frontend/public/demo/sample-slip.png` and says it is not a real payment. Quantity, prices, ownership, and file validity are independently checked by the server.
-
-## Manual payment review
-
-From the project root while the backend is running:
-
-```bash
-./scripts/orders.sh list
-./scripts/orders.sh inspect ORDER_REFERENCE
-./scripts/orders.sh review ORDER_REFERENCE CONFIRMED --reviewer "Lecturer"
-./scripts/orders.sh review ORDER_REFERENCE REJECTED --reviewer "Lecturer" --reason "Please check the transferred amount."
-```
-
-Replace `ORDER_REFERENCE` with a reference printed by `list`, such as `SS-...`. Run only the decision appropriate to that order; an already-reviewed order cannot be changed again.
-
-`inspect` prints the order snapshot and exports its slip to a private temporary folder on your Mac. It prints the file path for opening in Preview. Delete that temporary folder after reviewing it. This requires local project/Docker access; there is no admin website or public review endpoint.
-
-For this demo, the reviewer records a simulated decision. The app does not connect to a bank, perform OCR, issue refunds, or verify transfer authenticity automatically.
-
-## Connect MongoDB Compass
-
-Start using both Compose files as above. Create a Compass connection with:
-
-| Setting | Value |
+| Area | Technologies |
 | --- | --- |
-| Host / port | `127.0.0.1` / `27018` |
-| Authentication | Username / Password |
-| Username | `shop_app` (or `MONGO_APP_USERNAME` from `.env`) |
-| Password | `MONGO_APP_PASSWORD` from `.env` |
-| Authentication database | `simple_shop` (or `MONGO_DB_NAME`) |
-| TLS | Off for this local demonstration |
+| Frontend | React, React Router, Vite, Lucide icons, CSS |
+| API | Node.js 24, Express 5, Zod, Mongoose |
+| Authentication | Argon2id, server-side sessions, MongoDB session storage, CSRF protection |
+| Upload processing | Multer, Sharp, private filesystem storage |
+| Extension | `@grpc/grpc-js`, `@grpc/proto-loader`, Protocol Buffers |
+| Runtime | Docker Compose, MongoDB 7.0.43, Nginx |
+| Checks | ESLint, Prettier, Node test runner, Supertest, Playwright |
 
-The backend uses `mongodb:27017` on Docker's private network, not the Compass host address. Use the application credentials, not the root credentials. Application collections are `users`, `products`, `carts`, `orders`, and `sessions`.
+Dependency versions are locked in each package's `package-lock.json`.
 
-Do not hand-edit password hashes or order status in Compass. The application's registration, seed, and review commands maintain the validation rules.
+## Start locally
 
-## Configuration
+Requirements: Docker Engine/Docker Desktop with Compose. Host Node.js 24 is useful for tooling but is not required to run the containers.
 
-See `.env.example` for all settings. Your `.env` is excluded from Git.
+From the repository root:
 
-| Change | Setting |
+```bash
+sh scripts/setup-env.sh
+sh scripts/shop.sh dev up --build -d --wait
+```
+
+Open **http://localhost:8080** and create an account. The setup script generates local secrets and preserves an existing `.env`.
+
+`dev` runs Vite and Node watch processes with source mounts. For a local run using the built Nginx frontend and deployment-style backend/plug-in images:
+
+```bash
+sh scripts/shop.sh local up --build -d --wait
+```
+
+Choose one local mode at a time. Both use the same local database/upload volumes and web port.
+
+Useful commands:
+
+```bash
+sh scripts/shop.sh dev ps
+sh scripts/shop.sh dev logs --tail=50 backend study-kit-plugin
+sh scripts/shop.sh dev stop
+```
+
+The helper simply selects Compose files; it passes the remaining arguments to `docker compose`. `-d` runs in the background and `--wait` checks readiness. Named volumes preserve data across normal container recreation.
+
+## Shopping and payment review
+
+1. Create an account and add items to your bag.
+2. Optionally use the Study Kit Checker.
+3. Continue to checkout and upload a PNG/JPEG slip, up to 5 MiB and 20 megapixels.
+4. In sample-payment mode, the checkout page provides a clearly marked test slip.
+5. Submit the order and view its reference and status in My orders.
+
+An operator with local Docker access can review pending payments:
+
+```bash
+sh scripts/orders.sh --mode local list
+sh scripts/orders.sh --mode local inspect ORDER_REFERENCE
+sh scripts/orders.sh --mode local review ORDER_REFERENCE CONFIRMED --reviewer "Operator"
+sh scripts/orders.sh --mode local review ORDER_REFERENCE REJECTED --reviewer "Operator" --reason "Transfer details need checking."
+```
+
+Replace `ORDER_REFERENCE` with a real reference from `list` and choose one review decision. `inspect` exports the private slip to a temporary directory and prints its location. Use `--mode vm` when running the same helper inside the deployment host. There is no public administrator website.
+
+## Optional Study Kit Checker
+
+| Purpose | Essentials |
 | --- | --- |
-| Browser port | Set both `APP_PORT` and the matching `APP_ORIGIN` |
-| Actual receiving details | `BANK_NAME`, `BANK_ACCOUNT_NAME`, `BANK_ACCOUNT_NUMBER` |
-| Demo instructions | `PAYMENT_DEMO_MODE=true` by default |
-| Enable real receiving instructions | Fill all bank fields and set `PAYMENT_DEMO_MODE=false` |
-| Demo accounts/catalog | `SEED_DEMO_DATA=true` |
-| Database image | `MONGO_IMAGE=mongo:7.0.43` |
-| Local cookies | `COOKIE_SECURE=false` for HTTP; requires HTTPS if true |
-| Request limits | `AUTH_RATE_LIMIT`, `ORDER_RATE_LIMIT`, `API_RATE_LIMIT` |
+| Exam preparation | Notebook/notepad; writing item |
+| Journaling | Notebook; writing item; decoration |
+| Desk organization | Writing item; tray/pouch |
 
-After changing environment values, use `docker compose ... up -d` with your chosen Compose files so containers are recreated with the new values. `restart` alone does not load new environment values. Do not regenerate database passwords against an initialized volume. Currency is THB; changing an existing catalog's currency requires an explicit migration, not merely relabeling prices.
+| Algorithm tag | Behaviour |
+| --- | --- |
+| `P1` | Checks whether at least one suitable product covers each essential |
+| `P2` | Counts catalog units and requires two writing items, including a spare |
 
-### MongoDB version compatibility on this machine
+For Exam preparation, notebook ×1 + pen ×1 is ready under P1. The same cart is incomplete under P2 until another writing item is added. A Pencil trio is one purchasable catalog unit.
 
-The initial `mongo:8.0.32` image refused to start on this machine's Docker kernel `7.0.12-linuxkit`. Its log referenced SERVER-121912. We verified the new volume was empty and selected `mongo:7.0.43`, which runs successfully here. No pre-existing database was downgraded or deleted. See [MongoDB's kernel compatibility notice](https://www.mongodb.com/community/forums/t/mongodb-8-x-and-linux-kernel-6-19/337547).
+The UI displays the running algorithm, checks real gRPC availability, and hides stale results after cart or algorithm changes. Rules live in `plugins/study-kit/src/rules.js`; the canonical contract is `backend/src/plugins/studyKit.proto`.
 
-Keep this tested version for the assignment. Do not attach an existing database to a different major MongoDB version without a migration plan. Images are explicit versions/major lines; npm versions are locked in package-lock files.
-
-## Editing and automatic reload
-
-Start with [CODE_GUIDE.md](CODE_GUIDE.md). It maps common lecturer requests to the responsible files and includes three worked changes.
-
-For the normal built app, rebuild after changing source:
+To observe optional-service behaviour:
 
 ```bash
-docker compose -f compose.yaml -f compose.compass.yaml up --build -d
+sh scripts/shop.sh dev stop study-kit-plugin
+sh scripts/shop.sh dev start study-kit-plugin
 ```
 
-For live editing with Vite and Node watch, use:
+Wait for the next availability check or use the panel's refresh button. Checkout remains independent. To start only the core services, use `up --build -d --wait mongodb backend frontend`. To disable the adapter entirely, set `STUDY_KIT_ENABLED=false` in the environment file and recreate the backend.
+
+## Deployment with published images
+
+The standalone `compose.deploy.yaml` uses images instead of source builds. `scripts/publish-images.sh` publishes:
+
+- `shinebo/ecommerce-frontend:APP_IMAGE_TAG`
+- `shinebo/ecommerce-backend:APP_IMAGE_TAG`
+- `shinebo/ecommerce-study-kit:P1` and `:P2`
+
+The account can be changed with `DOCKERHUB_USERNAME`. Publishing defaults to `linux/arm64`; use `PLATFORMS=linux/amd64,linux/arm64` for both architectures.
+
+Create the three registry repositories and a Buildx builder before publishing:
 
 ```bash
-docker compose -f compose.yaml -f compose.compass.yaml -f compose.dev.yaml up --build -d
+docker buildx create --name ecommerce-builder --driver docker-container --bootstrap
+APP_IMAGE_TAG=v2 sh scripts/publish-images.sh
 ```
 
-The browser address remains `http://localhost:8080`. Frontend source edits reload through Vite; backend edits restart the Node process. Return to the built version with the normal command above. Newly added npm dependencies still require rebuilding the appropriate image. Development tools are an opt-in local workflow, not a deployment configuration.
+Create the builder once. Use a new application tag for later releases. The script bakes each algorithm into a separate plug-in image; assigning two names to the same image would not change the algorithm.
 
-## Validation
+On the deployment host, retain this layout:
 
-Backend tests run in a **separate Compose project, database, and volume**:
+```text
+ecommerce/
+├── compose.deploy.yaml
+├── .env.vm.example
+├── .env.vm                   # generated privately on the host
+├── scripts/
+│   ├── setup-vm-env.sh
+│   ├── shop.sh
+│   └── orders.sh
+└── docker/mongo-init/01-create-app-user.js
+```
+
+Generate fresh configuration using the exact browser origin, then select the published application tag in `.env.vm`:
 
 ```bash
-docker compose -f compose.test.yaml up --build --abort-on-container-exit --exit-code-from tests
+sh scripts/setup-vm-env.sh http://your-host:8080
+# Edit APP_IMAGE_TAG, APP_PORT, and other deployment settings as needed.
+sh scripts/shop.sh vm pull
+sh scripts/shop.sh vm up -d --wait
 ```
 
-Tests refuse any database name not ending in `_test`. To remove only their disposable containers and volume after testing:
+For the VirtualBox NAT setup, the example browser origin is `http://localhost:8088`, forwarding to port 80 inside the VM. Local and VM copies have independent databases, upload volumes, and default session-cookie names. They do not synchronize records.
+
+To switch algorithms, change the default `P1`/`P2` in the plug-in image line in `compose.deploy.yaml`, or explicitly set `PLUGIN_TAG` in `.env.vm`, then run:
 
 ```bash
-docker compose -f compose.test.yaml down -v
+sh scripts/shop.sh vm pull study-kit-plugin
+sh scripts/shop.sh vm up -d --no-deps --wait study-kit-plugin
 ```
 
-Run static checks in containers without installing dependencies on your Mac:
+An explicit environment value takes precedence over the Compose default. Recreating the plug-in preserves orders, accounts, carts, and uploads.
+
+## Configuration and persistence
+
+`.env.example` and `.env.vm.example` describe shareable settings. Generated environment files, uploads, database exports, and local learning material are excluded from Git.
+
+| Setting | Purpose |
+| --- | --- |
+| `APP_PORT`, `APP_ORIGIN` | Published web port and exact browser origin |
+| `SESSION_SECRET`, `SESSION_COOKIE_NAME` | Session signing secret and environment-specific cookie name |
+| `MONGO_*` | Database image, name, and credentials |
+| `PAYMENT_DEMO_MODE`, `BANK_*` | Sample-payment mode or receiving-bank display details |
+| `SEED_DEMO_DATA`, `DEMO_CUSTOMER_PASSWORD` | Optional catalog/demo account seeding |
+| `STUDY_KIT_ENABLED`, `PLUGIN_*` | Optional adapter, gRPC address, timeout, deployment tag |
+
+The app saves users, products, carts, orders, and sessions in MongoDB. Slip bytes live in `slip_uploads`; orders hold their metadata/reference. Order snapshots preserve purchased prices. Session expiry does not delete customer records.
+
+Normal startup inserts missing seed records without overwriting existing products. To intentionally apply `backend/src/data/products.json` changes:
 
 ```bash
-docker compose exec backend npm run lint
-docker build --target build -t simple-shop-frontend-check frontend
-docker run --rm simple-shop-frontend-check npm run lint
+sh scripts/shop.sh dev exec backend npm run catalog:update
 ```
 
-For browser tests, keep the shop running, then install the local frontend development dependencies/browser:
+Named volumes are persistent storage, not automatic backups. Back up MongoDB, slip files, and private configuration together. `down -v` deletes the project's volumes; it is not a routine shutdown command. Do not change database passwords against an initialized volume without updating the database users.
+
+## Development checks
+
+For host tooling, install Node.js 24 and each package's locked dependencies:
+
+```bash
+npm ci
+npm --prefix backend ci
+npm --prefix frontend ci
+npm --prefix plugins/study-kit ci
+npm run format:check
+npm run lint
+npm run test:scripts
+npm run test:plugin
+npm test
+```
+
+API tests use a separate Compose project and a database ending in `_test`. Production backend/plug-in image stages omit development dependencies and test files; development/test stages keep the required tools.
+
+With the P1 shop running, install Playwright Chromium and run browser journeys:
 
 ```bash
 cd frontend
-npm ci
-npx playwright install chromium
+npx playwright install chromium --only-shell
 npm run test:e2e
 ```
 
-Browser tests create synthetic `browser-...@example.com` accounts and sample orders in the running local shop. The backend integration suite is isolated from those records and your own records. Browser tests check the full purchase journey, second-customer isolation, deep-link refresh, and a 375px viewport. See [TEST_RESULTS.md](TEST_RESULTS.md) for the implementation checks performed.
+Browser journeys create synthetic customer/order records in their target shop. The stop/start lifecycle test requires explicit `RUN_PLUGIN_LIFECYCLE_TEST=true`; it restores the plug-in afterward. Use an intended test instance when running journeys that create records or control containers.
 
-For formatting on your Mac, run `npm ci` in the root and then `npm run format`. To lint source locally, also run `npm ci` in both backend and frontend before `npm run lint` from the root.
-
-## Everyday Docker commands
-
-```bash
-# State and logs
-docker compose ps
-docker compose logs --tail=80 backend
-
-# Stop without removing any data
-docker compose stop
-
-# Resume, including Compass access
-docker compose -f compose.yaml -f compose.compass.yaml up -d
-
-# Remove containers/network, keep named data volumes
-docker compose -f compose.yaml -f compose.compass.yaml down
-```
-
-The named volumes are `se-part2-shop_mongo_data` and `se-part2-shop_slip_uploads`. Preserve both together when backing up or moving the project. A database backup without its slips is incomplete. Do not copy live MongoDB data files as a backup; stop the database or use its backup tools.
-
-**Destructive reset:** `docker compose -f compose.yaml -f compose.compass.yaml down -v` deletes all shop users, carts, orders, sessions, and slips. Use it only if you intentionally want a fresh demo. It is not needed for ordinary source edits or restarts.
-
-## Troubleshooting
-
-| Symptom | Check |
-| --- | --- |
-| Docker unavailable | Open Docker Desktop and confirm `docker info` finishes |
-| Shop has not appeared | Wait for `docker compose ps` to show healthy services; inspect backend/database logs |
-| Form says session expired | Refresh and use `http://localhost:8080`; the browser origin must match `APP_ORIGIN` |
-| Database authentication fails | Check the original `.env` credentials; first-use scripts do not rerun on an existing volume |
-| Compass cannot connect | Include `compose.compass.yaml`; use port 27018 and auth database `simple_shop` |
-| Product edit does not appear | Run the explicit catalog update described in CODE_GUIDE, not only a container restart |
-| Slip rejected | Use a valid single PNG/JPEG below 5 MiB and 20 megapixels; PDF/HEIC/SVG are not accepted |
-| Repeated checkout request conflicts | Open the existing order returned by the error; check My orders before starting a new attempt |
-| A port is busy | Choose another `APP_PORT` and matching `APP_ORIGIN`, or change only the host port in the Compass override |
-
-## Scope and architecture
+## Repository layout
 
 ```text
-Browser → React/Nginx frontend → Express API → MongoDB
-                                     └──────→ private slip volume
+backend/             Express routes, services, models, operator CLI, API tests
+frontend/            React pages, shared state, UI assets, Vite/Nginx configuration
+plugins/study-kit/   Independent gRPC service, algorithms, health check, tests
+backend/src/plugins/ Shared .proto, core gRPC adapter, extension HTTP boundary
+docker/mongo-init/   Database-user initialization for a new volume
+scripts/             Setup, Compose selection, publishing, operator utilities
+tests/               Shell-helper tests and browser journeys
+compose*.yaml        Local, development, Compass, isolated test, and image deployment modes
 ```
 
-The frontend never connects directly to the database. Nginx proxies `/api` to the backend on the same origin. Sessions are stored in MongoDB, passwords use Argon2id, mutating requests require a CSRF header and matching origin, and order/slip endpoints enforce ownership.
+## Operational scope
 
-Cart versions prevent stale changes. Checkout stores immutable item prices, uses unique customer/cart-version and idempotency-key indexes, and clears the cart conditionally. Failure recovery avoids deleting a slip for an order that may have committed. Old unreferenced files are cleaned on startup after a 24-hour grace period.
+The application includes authenticated access, request validation, CSRF checks, private slip access, versioned cart updates, and duplicate-checkout protection. It currently uses manual payment review and a local operator CLI. Automated bank verification, finite inventory, shipping fulfilment, refunds, password recovery, and an administrator UI are not implemented.
 
-Finite inventory, delivery, refunds, slip replacement, payment gateways, password recovery, and public deployment are outside this assignment. This local app provides neither automatic proof of payment nor production banking integration.
+The supplied HTTP configuration suits local/private-host demonstrations. Internet-facing operation requires HTTPS, appropriate cookie/origin settings, monitored backups, and deployment-specific access controls. There is no automatic schema migration, production monitoring service, or database backup scheduler included.
